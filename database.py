@@ -25,8 +25,8 @@ def init_db():
             "네이버 뉴스",
             "https://news.naver.com",
             "https://news.naver.com/main/ranking/popularDay.naver",
-            "li.ranking_item a.ranking_title",
-            "a.ranking_title",
+            "div.list_content a.list_title",
+            "div.list_content a.list_title",
             "div#newsct_article"
         ),
         (
