@@ -15,47 +15,67 @@ def fetch_news_headlines_and_links(site_config, keyword, count=10):
     Returns:
         뉴스 헤드라인과 링크 리스트
     """
+    full_url = ""
     try:
-        # 요청 헤더 설정
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         
-        # 키워드를 URL 인코딩하고, site_config의 URL과 조합
         encoded_keyword = quote(keyword)
         full_url = f"{site_config['headlines_section_url']}{encoded_keyword}"
         
-        # 뉴스 검색 결과 페이지 요청
-        print(f"Requesting URL: {full_url}") # 디버깅을 위한 URL 출력
+        print(f"Requesting URL: {full_url}")
         response = requests.get(full_url, headers=headers, timeout=10)
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, 'html.parser')
+
+        # headline_selector는 database.py에서 'div.group_news a.n6AJosQA40hUOAe_Vplg' 등으로 설정됨
+        news_link_elements = soup.select(site_config['headline_selector'])
         
-        # 헤드라인 요소 찾기 (블로그 참고: 'a.news_tit')
-        # site_config['headline_selector']는 'a.news_tit'으로 설정되어 있어야 함
-        headline_elements = soup.select(site_config['headline_selector'])
+        print(f"사용된 선택자: {site_config['headline_selector']}")
+        print(f"선택된 뉴스 링크 요소 개수: {len(news_link_elements)}")
+
+        if not news_link_elements:
+            print("뉴스 링크 요소를 찾지 못했습니다.")
+            # print(soup.prettify()) # 전체 HTML 확인 필요시 주석 해제
+            return []
         
         results = []
-        for element in headline_elements[:count]:
-            title = element.get_text().strip()
-            link = element['href'] # a.news_tit이 <a> 태그이므로 href 속성 직접 사용
+        for link_element in news_link_elements[:count]:
+            link = link_element['href']
+            title = None 
             
-            # 네이버 검색 결과의 링크는 대부분 절대 URL이지만, 만약을 위해 base_url과 조합
-            # (site_config['base_url']은 'https://search.naver.com' 등으로 설정)
-            # 다만, 뉴스 기사 링크는 news.naver.com 도메인이므로, urljoin이 적절하지 않을 수 있음.
-            # 실제 링크가 절대 URL인지 확인 필요. 대부분 절대 URL임.
-            # link = urljoin(site_config['base_url'], link) # 이 부분은 실제 링크 형태에 따라 주석 처리 또는 수정
+            title_span_specific = link_element.find('span', class_='sds-comps-text-type-headline1')
+            if title_span_specific:
+                title = title_span_specific.get_text().strip()
             
+            if not title:
+                spans_in_link = link_element.find_all('span', recursive=False)
+                if spans_in_link:
+                    # 첫 번째 span의 텍스트를 사용하거나, 모든 span 텍스트를 합칠 수 있음
+                    # 여기서는 첫 번째 span의 텍스트를 사용
+                    title = spans_in_link[0].get_text().strip()
+                    if title:
+                        print(f"정보: '{link}' 링크에서 특정 클래스 span 못찾음. 첫번째 span 사용: '{title}'")
+                    else:
+                        title = None 
+            
+            if not title: 
+                title = "제목을 찾을 수 없음"
+                print(f"경고: '{link}' 링크에서 제목을 최종적으로 찾지 못함.")
+
+            # 제목이 비어있거나, 특정 키워드(예: 언론사명)만 있는 경우를 추가적으로 필터링 할 수도 있음
+            # 예: if not title or title in ["네이버뉴스", "연합뉴스"] : continue # 이런 뉴스는 건너뛰기
+
+            print(f"추출 결과 - 제목: {title}, 링크: {link}")
             results.append({'title': title, 'url': link})
-            
-            # 너무 빠른 요청 방지
             time.sleep(random.uniform(0.1, 0.3))
-            
+                
         return results
-    
+
     except Exception as e:
-        print(f"키워드 뉴스 헤드라인 크롤링 에러: {e} (URL: {full_url if 'full_url' in locals() else 'URL 생성 전 오류'})")
+        print(f"키워드 뉴스 헤드라인 크롤링 에러: {e} (URL: {full_url if full_url else 'URL 생성 전 오류'})")
         return []
 
 def fetch_article_content(article_url, site_config):

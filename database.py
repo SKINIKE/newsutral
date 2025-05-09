@@ -25,8 +25,8 @@ def init_db():
             "네이버 뉴스",
             "https://search.naver.com",
             "https://search.naver.com/search.naver?where=news&query=",
-            "a.news_tit",
-            "a.news_tit",
+            "div.group_news a.n6AJosQA40hUOAe_Vplg.cdv6mdm2_kpW2D6slkm6",
+            "div.group_news a.n6AJosQA40hUOAe_Vplg.cdv6mdm2_kpW2D6slkm6",
             "article#dic_area"
         )
         # 다른 사이트 설정은 일단 주석 처리하거나 삭제 (현재는 네이버 키워드 검색에 집중)
