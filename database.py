@@ -25,9 +25,9 @@ def init_db():
             "네이버 뉴스",
             "https://search.naver.com",
             "https://search.naver.com/search.naver?where=news&query=",
-            "div.group_news a.n6AJosQA40hUOAe_Vplg.cdv6mdm2_kpW2D6slkm6",
-            "div.group_news a.n6AJosQA40hUOAe_Vplg.cdv6mdm2_kpW2D6slkm6",
-            "article#dic_area"
+            "div.sds-comps-vertical-layout.sds-comps-full-layout.dZQQMujvOqnxG1bUQsg6",  # 개별 뉴스 아이템 최상위 컨테이너
+            "a.n6AJosQA40hUOAe_Vplg.cdv6mdm2_kpW2D6slkm6",  # 컨테이너 내의 실제 기사 제목 링크
+            "div#newsct_article"
         )
         # 다른 사이트 설정은 일단 주석 처리하거나 삭제 (현재는 네이버 키워드 검색에 집중)
         # (
@@ -50,7 +50,7 @@ def init_db():
     
     for site in sites:
         cursor.execute("""
-        INSERT OR IGNORE INTO managed_news_sites 
+        INSERT OR REPLACE INTO managed_news_sites 
         (site_name, base_url, headlines_section_url, headline_selector, link_selector, article_body_selector) 
         VALUES (?, ?, ?, ?, ?, ?)
         """, site)

@@ -30,46 +30,71 @@ def fetch_news_headlines_and_links(site_config, keyword, count=10):
         
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # headline_selector는 database.py에서 'div.group_news a.n6AJosQA40hUOAe_Vplg' 등으로 설정됨
-        news_link_elements = soup.select(site_config['headline_selector'])
+        # headline_selector는 이제 각 뉴스 아이템을 감싸는 div.sds-comps-vertical-layout... 입니다.
+        news_item_containers = soup.select(site_config['headline_selector'])
         
-        print(f"사용된 선택자: {site_config['headline_selector']}")
-        print(f"선택된 뉴스 링크 요소 개수: {len(news_link_elements)}")
+        print(f"사용된 아이템 컨테이너 선택자: {site_config['headline_selector']}")
+        print(f"선택된 뉴스 아이템 컨테이너 개수: {len(news_item_containers)}")
 
-        if not news_link_elements:
-            print("뉴스 링크 요소를 찾지 못했습니다.")
-            # print(soup.prettify()) # 전체 HTML 확인 필요시 주석 해제
+        if not news_item_containers:
+            print(f"뉴스 아이템 컨테이너를 찾지 못했습니다. HTML 일부: {str(soup)[:500]}")
             return []
         
         results = []
-        for link_element in news_link_elements[:count]:
-            link = link_element['href']
-            title = None 
+        for item_container in news_item_containers[:count]: 
+            # 1. item_container 내에서 실제 기사 제목 링크(title_link_element)와 제목(title) 추출
+            # link_selector는 'a.n6AJosQA40hUOAe_Vplg.cdv6mdm2_kpW2D6slkm6'
+            title_link_element = item_container.select_one(site_config['link_selector'])
             
-            title_span_specific = link_element.find('span', class_='sds-comps-text-type-headline1')
-            if title_span_specific:
-                title = title_span_specific.get_text().strip()
-            
-            if not title:
-                spans_in_link = link_element.find_all('span', recursive=False)
-                if spans_in_link:
-                    # 첫 번째 span의 텍스트를 사용하거나, 모든 span 텍스트를 합칠 수 있음
-                    # 여기서는 첫 번째 span의 텍스트를 사용
-                    title = spans_in_link[0].get_text().strip()
-                    if title:
-                        print(f"정보: '{link}' 링크에서 특정 클래스 span 못찾음. 첫번째 span 사용: '{title}'")
-                    else:
-                        title = None 
-            
-            if not title: 
-                title = "제목을 찾을 수 없음"
-                print(f"경고: '{link}' 링크에서 제목을 최종적으로 찾지 못함.")
+            if not title_link_element:
+                # print(f"정보: 현 아이템 컨테이너 내에서 제목 링크({site_config['link_selector']})를 찾지 못했습니다. 컨테이너 HTML: {str(item_container)[:300]}...")
+                continue
 
-            # 제목이 비어있거나, 특정 키워드(예: 언론사명)만 있는 경우를 추가적으로 필터링 할 수도 있음
-            # 예: if not title or title in ["네이버뉴스", "연합뉴스"] : continue # 이런 뉴스는 건너뛰기
+            title = None
+            # 제목은 title_link_element 안의 특정 span 에서 추출 시도
+            # 예: <span class="sds-comps-text sds-comps-text-ellipsis-1 sds-comps-text-type-headline1">
+            title_span = title_link_element.select_one('span.sds-comps-text-type-headline1') 
+            if title_span:
+                title = title_span.get_text().strip()
+            else: # 못찾으면 title_link_element 자체의 텍스트 사용 (간혹 span 없이 a 태그에 바로 텍스트가 있을 수 있음)
+                title = title_link_element.get_text().strip()
+            
+            if not title or title == "제목을 찾을 수 없음":
+                # print(f"정보: 유효한 제목을 찾을 수 없어 건너<0xEB><0x9B><0x84>니다. 링크 요소: {title_link_element}")
+                continue
 
-            print(f"추출 결과 - 제목: {title}, 링크: {link}")
-            results.append({'title': title, 'url': link})
+            # 2. item_container 내에서 '네이버뉴스' 링크 찾기
+            #    <span class="sds-comps-text sds-comps-text-type-body2 sds-comps-text-weight-sm sds-comps-profile-info-subtext">
+            #       <a href="...n.news.naver.com..." class="n6AJosQA40hUOAe_Vplg tNtRMm1EBtRE0aoB5qXm">
+            #           <span class="sds-comps-text sds-comps-text-type-body2 sds-comps-text-weight-sm">네이버뉴스</span>
+            #       </a>
+            #    </span>
+            naver_news_link_element = None
+            # 네이버뉴스 링크를 포함하는 모든 a 태그를 먼저 찾습니다.
+            possible_naver_links = item_container.select('a[href*="n.news.naver.com"]')
+            for link in possible_naver_links:
+                # 해당 a 태그 또는 그 자식 span에 "네이버뉴스" 텍스트가 있는지 확인합니다.
+                if '네이버뉴스' in link.get_text(strip=True):
+                    # 추가적으로, 이 링크가 언론사 정보(profile) 영역에 있는지 확인하여 정확도를 높일 수 있습니다.
+                    # 예: link.find_parent('div', class_='sds-comps-profile-info')
+                    # 여기서는 일단 텍스트 기반으로 찾습니다.
+                    naver_news_link_element = link
+                    break 
+            
+            if title_link_element and naver_news_link_element: # 제목과 네이버뉴스 링크가 모두 있어야 함
+                naver_news_url = naver_news_link_element['href']
+                # URL 완전성 보장 (보통은 절대 URL이지만)
+                if not naver_news_url.startswith('http'):
+                    naver_news_url = urljoin(site_config['base_url'], naver_news_url)
+
+                print(f"추출 성공: 제목='{title}', 네이버뉴스 링크='{naver_news_url}'")
+                results.append({'title': title, 'url': naver_news_url})
+            # else:
+                # if not title_link_element:
+                #     print(f"디버그: 아이템 컨테이너에서 제목 링크 못찾음. 컨테이너: {str(item_container)[:200]}")
+                # if not naver_news_link_element:
+                #      print(f"디버그: 아이템 컨테이너 '{title}' 에서 네이버뉴스 링크 못찾음. 컨테이너: {str(item_container)[:200]}")
+
             time.sleep(random.uniform(0.1, 0.3))
                 
         return results
