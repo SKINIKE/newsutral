@@ -13,5 +13,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "이곳에 Gemini API 키를 넣으
 # 데이터베이스 경로
 DB_PATH = "newsutral.db"
 
-# 대화 상태 정의
-SELECTING_SITE, SELECTING_NEWS = range(2) 
+# 대화 상태 정의 (키워드 기반으로 변경)
+ASKING_KEYWORD, SELECTING_KEYWORD_NEWS = range(2)
+# SELECTING_SITE, SELECTING_NEWS = range(2) # 이전 상태 정의는 주석 처리 또는 삭제 

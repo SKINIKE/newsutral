@@ -2,13 +2,14 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import random
-from urllib.parse import urljoin
+from urllib.parse import urljoin, quote
 
-def fetch_news_headlines_and_links(site_config, count=10):
-    """뉴스 사이트에서 헤드라인과 링크 추출
+def fetch_news_headlines_and_links(site_config, keyword, count=10):
+    """특정 키워드로 뉴스 사이트에서 헤드라인과 링크 추출
     
     Args:
-        site_config: 사이트 설정 정보 딕셔너리
+        site_config: 사이트 설정 정보 딕셔너리 (네이버 뉴스 검색용)
+        keyword: 검색할 키워드
         count: 가져올 뉴스 개수
         
     Returns:
@@ -20,29 +21,31 @@ def fetch_news_headlines_and_links(site_config, count=10):
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         
-        # 뉴스 헤드라인 페이지 요청
-        response = requests.get(site_config['headlines_section_url'], headers=headers, timeout=10)
+        # 키워드를 URL 인코딩하고, site_config의 URL과 조합
+        encoded_keyword = quote(keyword)
+        full_url = f"{site_config['headlines_section_url']}{encoded_keyword}"
+        
+        # 뉴스 검색 결과 페이지 요청
+        print(f"Requesting URL: {full_url}") # 디버깅을 위한 URL 출력
+        response = requests.get(full_url, headers=headers, timeout=10)
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # 헤드라인 요소 찾기
+        # 헤드라인 요소 찾기 (블로그 참고: 'a.news_tit')
+        # site_config['headline_selector']는 'a.news_tit'으로 설정되어 있어야 함
         headline_elements = soup.select(site_config['headline_selector'])
         
         results = []
         for element in headline_elements[:count]:
-            # 제목 추출
             title = element.get_text().strip()
+            link = element['href'] # a.news_tit이 <a> 태그이므로 href 속성 직접 사용
             
-            # 링크 추출 (링크 선택자가 헤드라인 선택자와 다른 경우)
-            if site_config['link_selector'] != site_config['headline_selector']:
-                link_element = element.select_one(site_config['link_selector'])
-                link = link_element['href'] if link_element else element['href']
-            else:
-                link = element['href']
-            
-            # 상대 URL을 절대 URL로 변환
-            link = urljoin(site_config['base_url'], link)
+            # 네이버 검색 결과의 링크는 대부분 절대 URL이지만, 만약을 위해 base_url과 조합
+            # (site_config['base_url']은 'https://search.naver.com' 등으로 설정)
+            # 다만, 뉴스 기사 링크는 news.naver.com 도메인이므로, urljoin이 적절하지 않을 수 있음.
+            # 실제 링크가 절대 URL인지 확인 필요. 대부분 절대 URL임.
+            # link = urljoin(site_config['base_url'], link) # 이 부분은 실제 링크 형태에 따라 주석 처리 또는 수정
             
             results.append({'title': title, 'url': link})
             
@@ -52,7 +55,7 @@ def fetch_news_headlines_and_links(site_config, count=10):
         return results
     
     except Exception as e:
-        print(f"헤드라인 크롤링 에러: {e}")
+        print(f"키워드 뉴스 헤드라인 크롤링 에러: {e} (URL: {full_url if 'full_url' in locals() else 'URL 생성 전 오류'})")
         return []
 
 def fetch_article_content(article_url, site_config):

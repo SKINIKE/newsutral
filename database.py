@@ -23,28 +23,29 @@ def init_db():
     sites = [
         (
             "네이버 뉴스",
-            "https://news.naver.com",
-            "https://news.naver.com/main/ranking/popularDay.naver",
-            "div.list_content a.list_title",
-            "div.list_content a.list_title",
-            "div#newsct_article"
-        ),
-        (
-            "다음 뉴스",
-            "https://news.daum.net",
-            "https://news.daum.net/ranking/popular",
-            "a.link_txt",
-            "a.link_txt",
-            "div.article_view"
-        ),
-        (
-            "중앙일보",
-            "https://www.joongang.co.kr",
-            "https://www.joongang.co.kr/ranks/clicknews",
-            "h2.headline a",
-            "h2.headline a",
-            "div#article_body"
+            "https://search.naver.com",
+            "https://search.naver.com/search.naver?where=news&query=",
+            "a.news_tit",
+            "a.news_tit",
+            "article#dic_area"
         )
+        # 다른 사이트 설정은 일단 주석 처리하거나 삭제 (현재는 네이버 키워드 검색에 집중)
+        # (
+        #     "다음 뉴스",
+        #     "https://news.daum.net",
+        #     "https://news.daum.net/ranking/popular",
+        #     "a.link_txt",
+        #     "a.link_txt",
+        #     "div.article_view"
+        # ),
+        # (
+        #     "중앙일보",
+        #     "https://www.joongang.co.kr",
+        #     "https://www.joongang.co.kr/ranks/clicknews",
+        #     "h2.headline a",
+        #     "h2.headline a",
+        #     "div#article_body"
+        # )
     ]
     
     for site in sites:
@@ -58,16 +59,17 @@ def init_db():
     conn.close()
 
 def get_all_managed_sites():
-    """모든 관리 대상 뉴스 사이트 정보 반환"""
+    """모든 관리 대상 뉴스 사이트 정보 반환 (현재는 네이버 뉴스만 반환하도록 수정)"""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
-    cursor.execute("SELECT * FROM managed_news_sites")
-    sites = [dict(row) for row in cursor.fetchall()]
+    # 네이버 뉴스 설정만 가져오도록 하거나, 첫 번째 설정만 사용하도록 가정
+    cursor.execute("SELECT * FROM managed_news_sites WHERE site_name = ?", ("네이버 뉴스",))
+    site = cursor.fetchone()
     
     conn.close()
-    return sites
+    return [dict(site)] if site else [] # 단일 사이트지만 리스트 형태로 반환
 
 def get_managed_site_config(site_id_or_name):
     """특정 사이트의 설정 정보 반환

@@ -1,9 +1,14 @@
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ConversationHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ConversationHandler, MessageHandler, filters, ContextTypes
 
-from config import TELEGRAM_BOT_TOKEN, SELECTING_SITE, SELECTING_NEWS
-from database import init_db, get_all_managed_sites, get_managed_site_config
+from config import TELEGRAM_BOT_TOKEN
+# 상태 정의를 config.py에서 가져오거나 여기서 명시적으로 정의합니다.
+# 예시: ASKING_KEYWORD, SELECTING_KEYWORD_NEWS = range(2) # config.py로 옮기는 것을 권장
+# 아래는 main.py에 직접 정의하는 경우
+ASKING_KEYWORD, SELECTING_KEYWORD_NEWS = range(2)
+
+from database import init_db, get_managed_site_config
 from crawler import fetch_news_headlines_and_links, fetch_article_content
 from ai_processor import process_article
 
@@ -22,178 +27,179 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # 데이터베이스 초기화
     init_db()
     
-    # 관리 대상 뉴스 사이트 목록 가져오기
-    sites = get_all_managed_sites()
+    await update.message.reply_text(
+        "안녕하세요! 🤖 AI 뉴스 요약 봇입니다.\n"
+        "분석하고 싶은 뉴스 검색 키워드를 입력해주세요."
+    )
     
-    # 인라인 키보드 버튼 생성
+    return ASKING_KEYWORD
+
+async def ask_keyword_again_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "분석하고 싶은 뉴스 검색 키워드를 다시 입력해주세요."
+    )
+    return ASKING_KEYWORD
+
+async def handle_keyword(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    keyword = update.message.text
+    user_id = update.message.from_user.id
+    
+    site_config = get_managed_site_config("네이버 뉴스")
+    if not site_config:
+        await update.message.reply_text("네이버 뉴스 설정을 찾을 수 없습니다. 관리자에게 문의하세요.")
+        return ConversationHandler.END
+
+    loading_message = await update.message.reply_text(f"'{keyword}'에 대한 뉴스를 네이버에서 검색 중입니다...")
+    
+    news_list = fetch_news_headlines_and_links(site_config, keyword, count=10)
+    
+    try:
+        await loading_message.delete()
+    except Exception as e:
+        logger.info(f"메시지 삭제 실패 (이미 삭제되었을 수 있음): {e}")
+
+    if not news_list:
+        keyboard = [[InlineKeyboardButton("다른 키워드로 검색하기", callback_data="ask_keyword_again")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            f"'{keyword}'에 대한 뉴스를 찾지 못했습니다. 다른 키워드로 시도해보세요.",
+            reply_markup=reply_markup
+        )
+        return ASKING_KEYWORD
+    
+    news_cache[user_id] = {
+        'site_config': site_config,
+        'news_list': news_list,
+        'keyword': keyword
+    }
+    
     keyboard = []
-    for site in sites:
-        keyboard.append([InlineKeyboardButton(site['site_name'], callback_data=f"site_{site['id']}")])
+    for idx, news_item in enumerate(news_list):
+        title = news_item['title']
+        if len(title) > 40:
+            title = title[:37] + "..."
+        keyboard.append([InlineKeyboardButton(title, callback_data=f"news_{idx}")])
     
+    keyboard.append([InlineKeyboardButton("다른 키워드로 검색하기", callback_data="ask_keyword_again")])
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        "안녕하세요! 🤖 AI 뉴스 셔츠체크 봇입니다.\n"
-        "아래 목록에서 뉴스 사이트를 선택해주세요.",
-        reply_markup=reply_markup
-    )
-    
-    return SELECTING_SITE
-
-async def select_site(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """사용자가 선택한 뉴스 사이트 처리"""
-    query = update.callback_query
-    await query.answer()
-    
-    # 콜백 데이터에서 사이트 ID 추출 (형식: "site_숫자")
-    site_id = query.data.split('_')[1]
-    
-    # 선택한 사이트 정보 가져오기
-    site_config = get_managed_site_config(site_id)
-    
-    if not site_config:
-        await query.edit_message_text("사이트 정보를 찾을 수 없습니다. 다시 시도해주세요.")
-        return ConversationHandler.END
-    
-    # 로딩 메시지 표시
-    await query.edit_message_text(f"{site_config['site_name']}의 최신 뉴스를 가져오는 중입니다...")
-    
-    # 뉴스 헤드라인과 링크 가져오기
-    news_list = fetch_news_headlines_and_links(site_config, count=10)
-    
-    if not news_list:
-        await query.edit_message_text(
-            f"{site_config['site_name']}에서 뉴스를 가져오지 못했습니다. 다시 시도해주세요.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("처음으로 돌아가기", callback_data="start_over")]])
-        )
-        return SELECTING_SITE
-    
-    # 뉴스 캐시에 저장
-    context.user_data['current_site'] = site_config
-    news_cache[query.from_user.id] = {
-        'site_config': site_config,
-        'news_list': news_list
-    }
-    
-    # 인라인 키보드 버튼 생성
-    keyboard = []
-    for idx, news in enumerate(news_list):
-        # 제목이 너무 길면 잘라내기
-        title = news['title']
-        if len(title) > 40:
-            title = title[:37] + "..."
-        
-        keyboard.append([InlineKeyboardButton(title, callback_data=f"news_{idx}")])
-    
-    # 처음으로 돌아가기 버튼 추가
-    keyboard.append([InlineKeyboardButton("다른 사이트 선택하기", callback_data="start_over")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        f"{site_config['site_name']}의 최신 뉴스 목록입니다.\n"
+        f"'{keyword}'에 대한 네이버 뉴스 검색 결과입니다.\n"
         "읽고 싶은 기사를 선택해주세요.",
         reply_markup=reply_markup
     )
-    
-    return SELECTING_NEWS
+    return SELECTING_KEYWORD_NEWS
 
-async def select_news(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def select_keyword_news(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """사용자가 선택한 뉴스 기사 처리"""
     query = update.callback_query
     await query.answer()
+    user_id = query.from_user.id
     
-    # 사용자의 캐시된 뉴스 목록 가져오기
-    user_cache = news_cache.get(query.from_user.id)
+    user_cache = news_cache.get(user_id)
     if not user_cache:
         await query.edit_message_text(
-            "세션이 만료되었습니다. 다시 시작해주세요.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("처음으로 돌아가기", callback_data="start_over")]])
+            "세션이 만료되었거나 오류가 발생했습니다. 다른 키워드로 다시 검색해주세요.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("다른 키워드로 검색하기", callback_data="ask_keyword_again")]])
         )
-        return SELECTING_SITE
+        return ASKING_KEYWORD
     
-    # 콜백 데이터에서 뉴스 인덱스 추출 (형식: "news_숫자")
     news_idx = int(query.data.split('_')[1])
-    
-    # 선택한 뉴스 정보 가져오기
     selected_news = user_cache['news_list'][news_idx]
     site_config = user_cache['site_config']
+    current_keyword = user_cache['keyword']
     
-    # 로딩 메시지 표시
     await query.edit_message_text(f"선택하신 기사를 분석 중입니다...\n\n제목: {selected_news['title']}")
     
-    # 기사 본문 가져오기
     article_content = fetch_article_content(selected_news['url'], site_config)
     
-    if not article_content or article_content.startswith("기사를 가져오는 중 오류가 발생했습니다"):
+    if not article_content or article_content.startswith("기사를 가져오는 중 오류가 발생했습니다") or article_content == "기사 본문을 찾을 수 없습니다.":
+        keyboard = [
+            [InlineKeyboardButton(f"'{current_keyword}' 목록으로 돌아가기", callback_data=f"keyword_showlist")],
+            [InlineKeyboardButton("다른 키워드로 검색하기", callback_data="ask_keyword_again")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            f"기사 내용을 가져오지 못했습니다. 다시 시도해주세요.\n\n{article_content}",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("뉴스 목록으로 돌아가기", callback_data=f"site_{site_config['id']}")]])
+            f"기사 내용을 가져오지 못했습니다: {article_content}. 다른 기사를 선택하거나 새 키워드로 검색해주세요.",
+            reply_markup=reply_markup
         )
-        return SELECTING_NEWS
+        return SELECTING_KEYWORD_NEWS
     
-    # AI 처리 시작
-    await query.edit_message_text(f"AI가 기사를 분석 중입니다...\n\n제목: {selected_news['title']}")
-    
-    # AI 처리 (사실 추출 -> 중립화 및 주석 추가 -> 요약)
+    await query.edit_message_text(f"AI가 기사를 분석 중입니다... (시간이 좀 걸릴 수 있어요)\n\n제목: {selected_news['title']}")
     summary = process_article(article_content)
     
-    # 결과 표시 (원본 기사 링크 포함)
     result_text = (
-        f"📰 *{selected_news['title']}*\n\n"
+        f"📰 *{selected_news['title']}* ({current_keyword} 검색 결과)\n\n"
         f"{summary}\n\n"
         f"[원본 기사 보기]({selected_news['url']})"
     )
     
-    # 인라인 키보드 버튼 생성
     keyboard = [
-        [InlineKeyboardButton("뉴스 목록으로 돌아가기", callback_data=f"site_{site_config['id']}")],
-        [InlineKeyboardButton("처음으로 돌아가기", callback_data="start_over")]
+        [InlineKeyboardButton(f"'{current_keyword}' 목록으로 돌아가기", callback_data=f"keyword_showlist")],
+        [InlineKeyboardButton("다른 키워드로 검색하기", callback_data="ask_keyword_again")]
     ]
-    
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Markdown 형식으로 결과 표시
     await query.edit_message_text(
         result_text,
         reply_markup=reply_markup,
         parse_mode='Markdown',
-        disable_web_page_preview=True  # 링크 미리보기 비활성화
+        disable_web_page_preview=True
     )
-    
-    return SELECTING_NEWS
+    return SELECTING_KEYWORD_NEWS
 
-async def start_over(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """처음으로 돌아가기"""
+async def return_to_keyword_news_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
+    user_id = query.from_user.id
+
+    user_cache = news_cache.get(user_id)
+    if not user_cache or 'news_list' not in user_cache or 'keyword' not in user_cache:
+        await query.edit_message_text(
+            "이전 검색 결과를 찾을 수 없습니다. 다른 키워드로 다시 검색해주세요.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("다른 키워드로 검색하기", callback_data="ask_keyword_again")]])
+        )
+        return ASKING_KEYWORD
+
+    news_list = user_cache['news_list']
+    keyword = user_cache['keyword']
+
+    keyboard_buttons = []
+    for idx, news_item in enumerate(news_list):
+        title = news_item['title']
+        if len(title) > 40:
+            title = title[:37] + "..."
+        keyboard_buttons.append([InlineKeyboardButton(title, callback_data=f"news_{idx}")])
     
-    # 관리 대상 뉴스 사이트 목록 가져오기
-    sites = get_all_managed_sites()
-    
-    # 인라인 키보드 버튼 생성
-    keyboard = []
-    for site in sites:
-        keyboard.append([InlineKeyboardButton(site['site_name'], callback_data=f"site_{site['id']}")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
+    keyboard_buttons.append([InlineKeyboardButton("다른 키워드로 검색하기", callback_data="ask_keyword_again")])
+    reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+
     await query.edit_message_text(
-        "뉴스 사이트를 선택해주세요.",
+        f"'{keyword}'에 대한 네이버 뉴스 검색 결과입니다.\n"
+        "읽고 싶은 기사를 선택해주세요.",
         reply_markup=reply_markup
     )
-    
-    return SELECTING_SITE
+    return SELECTING_KEYWORD_NEWS
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """대화 취소"""
-    user = update.message.from_user
-    logger.info("사용자 %s가 대화를 취소했습니다.", user.first_name)
+    user = update.message.from_user if update.message else update.callback_query.from_user
+    logger.info("사용자 %s가 대화를 취소하거나 완료했습니다.", user.first_name)
     
-    await update.message.reply_text(
-        "대화가 취소되었습니다. 다시 시작하려면 /start 명령어를 입력해주세요."
-    )
-    
+    reply_text = "대화가 종료되었습니다. 다시 시작하려면 /start 명령어를 입력해주세요."
+    if update.message:
+        await update.message.reply_text(reply_text)
+    elif update.callback_query:
+        try:
+            await update.callback_query.edit_message_text(reply_text)
+        except Exception as e:
+            logger.error(f"메시지 수정 중 오류 (cancel): {e}")
+            # Fallback: send a new message if editing fails
+            await context.bot.send_message(chat_id=user.id, text=reply_text)
+            
+    news_cache.pop(user.id, None) 
     return ConversationHandler.END
 
 def main():
@@ -205,17 +211,17 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            SELECTING_SITE: [
-                CallbackQueryHandler(select_site, pattern=r"^site_\d+$"),
-                CallbackQueryHandler(start_over, pattern="^start_over$")
+            ASKING_KEYWORD: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_keyword),
+                CallbackQueryHandler(ask_keyword_again_callback, pattern="^ask_keyword_again$")
             ],
-            SELECTING_NEWS: [
-                CallbackQueryHandler(select_news, pattern=r"^news_\d+$"),
-                CallbackQueryHandler(select_site, pattern=r"^site_\d+$"),
-                CallbackQueryHandler(start_over, pattern="^start_over$")
+            SELECTING_KEYWORD_NEWS: [
+                CallbackQueryHandler(select_keyword_news, pattern=r"^news_\d+$"),
+                CallbackQueryHandler(ask_keyword_again_callback, pattern="^ask_keyword_again$"),
+                CallbackQueryHandler(return_to_keyword_news_list_callback, pattern="^keyword_showlist$")
             ],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[CommandHandler("cancel", cancel), CallbackQueryHandler(cancel, pattern="^cancel$")],
     )
     
     # 대화 핸들러 등록
