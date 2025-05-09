@@ -136,8 +136,8 @@ def fetch_article_content(article_url, site_config):
             tag.decompose()
         
         # 텍스트 추출 및 정리
-        paragraphs = article_body.find_all(['p', 'div'], recursive=True)
-        text_content = '\n'.join([p.get_text().strip() for p in paragraphs if p.get_text().strip()])
+        # div#newsct_article 요소 내부의 전체 텍스트를 가져오고, strip=True로 각 줄의 앞뒤 공백을 제거하며, separator='\n'으로 줄바꿈을 유지합니다.
+        text_content = article_body.get_text(separator='\n', strip=True)
         
         return text_content
     
