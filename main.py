@@ -1,7 +1,6 @@
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ConversationHandler, MessageHandler, filters, ContextTypes
-from telegram.helpers import escape_markdown
 
 from config import TELEGRAM_BOT_TOKEN
 # 상태 정의를 config.py에서 가져오거나 여기서 명시적으로 정의합니다.
@@ -129,21 +128,15 @@ async def select_keyword_news(update: Update, context: ContextTypes.DEFAULT_TYPE
         return SELECTING_KEYWORD_NEWS
     
     await query.edit_message_text(f"AI가 기사를 분석 중입니다... (시간이 좀 걸릴 수 있어요)\n\n제목: {selected_news['title']}")
-    summary = process_article(article_content)
+    summary_html = process_article(article_content)
     
-    # MarkdownV2를 위해 텍스트 이스케이프 처리
-    title_escaped = escape_markdown(selected_news['title'], version=2)
-    keyword_escaped = escape_markdown(current_keyword, version=2)
-    # summary는 AI가 생성하므로, 내용에 따라 이스케이프 처리가 필요할 수 있습니다.
-    # 만약 AI가 마크다운 형식으로 반환한다면 이스케이프하면 안 되고, 일반 텍스트로 반환한다면 이스케이프가 필요합니다.
-    # 여기서는 일단 summary도 이스케이프 처리한다고 가정합니다. 필요에 따라 조정하세요.
-    summary_escaped = escape_markdown(summary, version=2) 
-    url_raw = selected_news['url'] # URL 자체는 이스케이프하지 않고 링크 문법에 그대로 사용
+    title_raw = selected_news['title']
+    url_raw = selected_news['url']
 
     result_text = (
-        f"📰 *{title_escaped}* \({keyword_escaped} 검색 결과\)\n\n"  # 괄호 이스케이프
-        f"{summary_escaped}\n\n"
-        f"[원본 기사 보기]({url_raw})" # URL 링크의 괄호는 이스케이프하지 않음
+        f"📰 <b>{title_raw}</b> (<i>{current_keyword}</i> 검색 결과)\n\n" 
+        f"{summary_html}\n\n"
+        f"<a href=\"{url_raw}\">원본 기사 보기</a>"
     )
     
     keyboard = [
@@ -155,7 +148,7 @@ async def select_keyword_news(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.edit_message_text(
         result_text,
         reply_markup=reply_markup,
-        parse_mode='MarkdownV2', # MarkdownV2로 변경
+        parse_mode='HTML',
         disable_web_page_preview=True
     )
     return SELECTING_KEYWORD_NEWS
