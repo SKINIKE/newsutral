@@ -1,68 +1,100 @@
-# AI 기반 뉴스 셔츠체크 및 요약 봇
+# AI 기반 뉴스 요약 및 분석 봇 (뉴스트랄 - Newsutral)
 
-텔레그램을 통해 사용자가 선택한 뉴스 사이트의 최신 기사를 제공하고, Google Gemini API를 활용하여 선택한 기사의 사실 정보 추출, 중립적 주석 추가, 가독성 높은 요약을 제공하는 AI 봇입니다.
+텔레그램을 통해 사용자가 입력한 키워드로 네이버 뉴스를 검색하고, 선택한 기사에 대해 Google Gemini API를 활용하여 심층 분석 및 요약을 제공하는 AI 봇입니다. 기사의 편향성을 줄이고 균형 잡힌 정보를 얻는 것을 목표로 합니다.
 
 ## 주요 기능
 
-- **뉴스 사이트 선택**: 미리 정의된 주요 뉴스 사이트 목록에서 원하는 사이트 선택
-- **최신 뉴스 목록 확인**: 선택한 사이트의 최신 뉴스 헤드라인 목록 제공
-- **AI 기반 뉴스 처리**: 선택한 기사에 대해 다음 과정 수행
-  1. **팩트 추출**: 기사 내용에서 객관적 사실만 추출
-  2. **중립성 확보 및 주석**: 추출된 사실에 중립적 관점의 주석 추가
-  3. **요약 및 재구성**: 처리된 내용을 가독성 높게 요약
+- **키워드 기반 뉴스 검색**: 사용자가 입력한 키워드로 네이버 뉴스 실시간 검색.
+- **선별된 뉴스 목록**: 검색 결과 중 "네이버뉴스" 링크가 제공되는 기사 목록만 필터링하여 제공.
+- **AI 기반 심층 분석 및 요약**: 사용자가 선택한 기사에 대해 다음 3단계 AI 처리 수행:
+    1.  **비판적 팩트 추출**: 기사 내용에서 숨겨진 의도나 편향성을 고려하여 검증 가능한 핵심 사실 정보만 추출.
+    2.  **중립적 주석 추가**: 추출된 사실에 대해 다각적 관점과 균형을 위한 주석 추가.
+    3.  **가독성 높은 요약**: 분석 및 주석이 추가된 내용을 사용자가 이해하기 쉽도록 HTML 형식의 구어체 및 이모티콘을 사용하여 요약.
+- **HTML 형식 응답**: 텔레그램 메시지를 HTML로 포맷팅하여 가독성 향상.
+- **긴 메시지 자동 분할**: AI가 생성한 내용이 길 경우, 여러 메시지로 나누어 전송.
+- **오류 처리 및 재시작**: 메시지 전송 오류 등 발생 시 사용자에게 안내하고, 초기 단계로 돌아가 재시도 유도.
 
 ## 기술 스택
 
-- **Python**: 프로그래밍 언어
-- **python-telegram-bot**: 텔레그램 봇 API 연동
-- **BeautifulSoup4**: 웹 크롤링 및 파싱
-- **Google Gemini API**: AI 처리 (사실 추출, 중립화, 요약)
-- **SQLite**: 데이터 저장 및 관리
+- **Python**: 핵심 프로그래밍 언어
+- **python-telegram-bot**: 텔레그램 봇 API 연동 라이브러리
+- **BeautifulSoup4 & requests**: 웹 크롤링 및 HTML 파싱
+- **Google Gemini API (현재 gemini-2.0-flash 모델 사용 / 가능하면 고급 추론모델 사용 권장)**: AI 기반 텍스트 처리 (사실 추출, 중립화, 요약)
+- **SQLite**: 설정 정보 등 내부 데이터 저장 및 관리
 
 ## 설치 및 실행 방법
 
-1. 저장소 클론
-   ```bash
-   git clone https://github.com/yourusername/newsutral.git
-   cd newsutral
-   ```
+1.  **저장소 클론**
+    ```bash
+    git clone https://github.com/yourusername/newsutral.git # 실제 저장소 URL로 변경해주세요
+    cd newsutral
+    ```
 
-2. 필요한 패키지 설치
-   ```bash
-   pip install -r requirements.txt
-   ```
+2.  **가상 환경 생성 및 활성화 (권장)**
+    ```bash
+    python -m venv venv
+    # Windows
+    venv\Scripts\activate
+    # macOS/Linux
+    source venv/bin/activate
+    ```
 
-3. 환경 변수 설정
-   - `.env` 파일 생성 및 다음 내용 입력:
-   ```
-   TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-   GEMINI_API_KEY=your_gemini_api_key_here
-   ```
+3.  **필요한 패키지 설치**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-4. 봇 실행
-   ```bash
-   python main.py
-   ```
+4.  **환경 변수 설정**
+    -   프로젝트 루트 디렉토리에 `config.py` 파일이 이미 존재하며, 이 파일 내에 API 키를 직접 입력하거나, 또는 `.env` 파일을 생성하여 관리할 수 있습니다. `config.py`를 사용하는 경우 해당 파일을 직접 수정하세요.
+    -   `config.py` 내용 예시 (또는 `.env` 파일 내용):
+        ```python
+        # config.py
+        TELEGRAM_BOT_TOKEN = "your_telegram_bot_token_here"
+        GEMINI_API_KEY = "your_gemini_api_key_here"
+        ```
+
+5.  **데이터베이스 초기화 (최초 실행 시 자동)**
+    -   `main.py` 실행 시 `database.py`의 `init_db()` 함수가 호출되어 필요한 SQLite 데이터베이스 파일(`newsutral.db`)과 테이블이 자동으로 생성됩니다.
+
+6.  **봇 실행**
+    ```bash
+    python main.py
+    ```
 
 ## 봇 사용 방법
 
-1. 텔레그램에서 봇 검색 및 시작 (`/start` 명령어 입력)
-2. 표시된 뉴스 사이트 목록에서 원하는 사이트 선택
-3. 최신 뉴스 목록에서 읽고 싶은 기사 선택
-4. AI가 처리한 뉴스 요약 확인
+1.  텔레그램에서 개발한 봇을 검색하여 대화를 시작합니다.
+2.  봇이 요청하면 분석하고 싶은 뉴스 주제와 관련된 **키워드**를 입력합니다. (예: "반도체 시장 동향")
+3.  봇이 해당 키워드로 네이버 뉴스를 검색하여 기사 제목 목록을 보여줍니다.
+4.  목록에서 읽고 싶은 기사를 선택합니다.
+5.  잠시 후 AI가 해당 기사를 분석하고 요약한 내용을 HTML 형식으로 받습니다.
+6.  내용이 길 경우 여러 메시지로 나누어 제공될 수 있습니다.
+7.  "다른 키워드로 검색하기" 버튼을 통해 새로운 검색을 시작할 수 있습니다.
 
 ## 디렉토리 구조
 
-- `main.py`: 메인 애플리케이션 및 텔레그램 봇 설정
-- `crawler.py`: 뉴스 크롤링 모듈
-- `ai_processor.py`: Google Gemini API를 사용한 AI 처리 모듈
-- `database.py`: SQLite 데이터베이스 관리 모듈
-- `config.py`: 설정 파일
-- `requirements.txt`: 필요한 패키지 목록
+```
+newsutral/
+├── .venv/ (가상 환경 폴더, 선택 사항)
+├── ai_processor.py     # Google Gemini API를 사용한 AI 처리 모듈
+├── config.py           # API 키 등 설정 변수 관리
+├── crawler.py          # 네이버 뉴스 크롤링 모듈
+├── database.py         # SQLite 데이터베이스 설정 및 관리 모듈
+├── main.py             # 메인 애플리케이션 및 텔레그램 봇 로직
+├── README.md           # 프로젝트 설명 파일
+├── requirements.txt    # 필요한 Python 패키지 목록
+└── newsutral.db        # SQLite 데이터베이스 파일 (실행 시 생성)
+```
+
+## 향후 개선 사항 (예시)
+
+-   더 다양한 뉴스 소스 지원 (현재는 네이버 뉴스)
+-   사용자별 검색 기록 및 선호도 저장
+-   정교한 HTML 메시지 분할 로직 (태그 깨짐 방지)
+-   키워드 추천 기능
 
 ## 개발자 정보
 
-- 개발자 이름
-- 이메일 주소
-- GitHub 프로필 링크
-- 라이센스 정보
+-   [개발자 이름/팀 이름]
+-   [연락처 이메일]
+-   [GitHub 프로필/프로젝트 저장소 링크]
